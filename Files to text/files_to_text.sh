@@ -1,30 +1,29 @@
 #!/bin/bash
 
-# Current working directory
+# =============================
+# List of binary file extensions to exclude (case-insensitive)
+# Add/remove extensions as needed
+# =============================
+BINARY_EXTENSIONS=(
+    "*.png" "*.jpg" "*.jpeg" "*.gif" "*.bmp" "*.webp" "*.tiff" "*.ico"
+    "*.mp3" "*.wav" "*.flac" "*.ogg"
+    "*.mp4" "*.avi" "*.mkv" "*.mov"
+    "*.pdf" "*.zip" "*.tar" "*.gz" "*.7z"
+    "*.exe" "*.dll" "*.so" "*.bin"
+)
+# =============================
+
+# Starting directory
 start_dir="$(pwd)"
 root_name="$(basename "$start_dir")"
 
-# Make a path relative to given base directory
-rel_to_base() {
-    local abs="$1"
-    local base="$2"
-    local rel=""
+# Generate -prune expression for find from BINARY_EXTENSIONS
+bin_prune=()
+for ext in "${BINARY_EXTENSIONS[@]}"; do
+    bin_prune+=(-o -iname "$ext")
+done
 
-    if command -v realpath >/dev/null 2>&1; then
-        rel="$(realpath --relative-to="$base" "$abs" 2>/dev/null || true)"
-    fi
-    if [ -z "$rel" ]; then
-        case "$abs" in
-            "$base"/*) rel="${abs#$base/}" ;;
-            *) rel="$(basename "$abs")" ;;
-        esac
-    fi
-    rel="${rel#./}"
-    while [[ "$rel" == ../* ]]; do rel="${rel#../}"; done
-    printf '%s' "$rel"
-}
-
-# Draw directory tree
+# Draw directory tree without using `tree`
 print_tree() {
     local dir="$1"
     local prefix="$2"
@@ -34,7 +33,7 @@ print_tree() {
         [[ "$name" == .* ]] && continue
         entries+=("$name")
     done < <(find "$dir" -mindepth 1 -maxdepth 1 \
-                \( -path '*/.*' -prune \) -o \
+                \( -path '*/.*' "${bin_prune[@]}" -prune \) -o \
                 -printf '%f\0' | sort -z)
 
     local last_index=$(( ${#entries[@]} - 1 ))
@@ -58,7 +57,7 @@ print_tree() {
     done
 }
 
-# Language mapping
+# Map file extensions to Markdown language syntax highlighting
 get_lang() {
     case "${1,,}" in
         lua) echo "lua" ;;
@@ -86,103 +85,90 @@ get_lang() {
     esac
 }
 
-# Print file content
-# mode: "file" -> just filename
-#       "folder" -> basename(base_prefix)/relative-path-inside-that-folder
+# Output file content with language detection, skip binary files
 print_file_content() {
     local file="$1"
-    local mode="$2"
-    local base_prefix="$3"
-    local header=""
-
-    if [ "$mode" = "file" ]; then
-        header="$(basename "$file")"
-    else
-        local base_name; base_name="$(basename "$base_prefix")"
-        local rel_in_base; rel_in_base="$(rel_to_base "$file" "$base_prefix")"
-        header="${base_name}/${rel_in_base}"
+    # Skip binary files based on MIME type
+    if file --mime "$file" | grep -q 'charset=binary'; then
+        return
     fi
 
-    echo "$header"
     local ext="${file##*.}"
-    local lang="$(get_lang "$ext")"
+    local lang
+    lang="$(get_lang "$ext")"
 
     if [ -n "$lang" ]; then
         printf '```%s\n' "$lang"
     else
         echo '```'
     fi
-
     cat "$file"
     echo
     echo '```'
-    echo
 }
 
-# Process folder: prints tree + files with paths relative to that folder
-process_folder() {
+# Process a directory: print tree + files content
+process_dir() {
     local dir="$1"
-    echo "$(basename "$dir")/"
+    local dir_name
+    dir_name="$(basename "$dir")"
+
+    echo "${dir_name}/"
     print_tree "$dir" ""
     echo
+
     find "$dir" \
-        \( -path '*/.*' -prune \) -o \
+        \( -path '*/.*' "${bin_prune[@]}" -prune \) -o \
         -type f -print0 | sort -z |
     while IFS= read -r -d '' file; do
-        print_file_content "$file" "folder" "$dir"
+        rel_path="${file#$dir/}"
+        echo "${dir_name}/${rel_path}"
+        print_file_content "$file"
+        echo
     done
 }
 
-# Main logic
-if [ "$#" -eq 0 ]; then
-    process_folder "$start_dir"
+# Process a single file
+process_file() {
+    local file="$1"
+    local filename
+    filename="$(basename "$file")"
+
+    echo "$filename"
+    print_file_content "$file"
+    echo
+}
+
+# Main logic based on passed arguments
+if [ $# -eq 0 ]; then
+    process_dir "$start_dir"
 else
-    folders=()
+    dirs=()
     files=()
-    for arg in "$@"; do
-        path="$start_dir/$arg"
+    for path in "$@"; do
         if [ -d "$path" ]; then
-            folders+=("$path")
+            dirs+=("$path")
         elif [ -f "$path" ]; then
-            files+=("$path")
+            # Skip binary files directly in param list
+            if ! file --mime "$path" | grep -q 'charset=binary'; then
+                files+=("$path")
+            fi
         fi
     done
 
-    if [ "${#folders[@]}" -eq 1 ] && [ "${#files[@]}" -eq 0 ]; then
-        process_folder "${folders[0]}"
-    elif [ "${#files[@]}" -eq 1 ] && [ "${#folders[@]}" -eq 0 ]; then
-        print_file_content "${files[0]}" "file"
-    elif [ "${#folders[@]}" -ge 2 ] && [ "${#files[@]}" -eq 0 ]; then
-        for i in "${!folders[@]}"; do
-            process_folder "${folders[$i]}"
-            if [ "$i" -lt $(( ${#folders[@]} - 1 )) ]; then
-                echo
-                echo "--------------------------------------------------"
-                echo
-            fi
-        done
-    elif [ "${#files[@]}" -ge 2 ] && [ "${#folders[@]}" -eq 0 ]; then
-        for i in "${!files[@]}"; do
-            print_file_content "${files[$i]}" "file"
-            if [ "$i" -lt $(( ${#files[@]} - 1 )) ]; then
-                echo
-                echo "--------------------------------------------------"
-                echo
-            fi
-        done
+    if [ ${#dirs[@]} -eq 1 ] && [ ${#files[@]} -eq 0 ]; then
+        process_dir "${dirs[0]}"
+    elif [ ${#dirs[@]} -eq 0 ] && [ ${#files[@]} -eq 1 ]; then
+        process_file "${files[0]}"
     else
-        mixed_items=("${folders[@]}" "${files[@]}")
-        for i in "${!mixed_items[@]}"; do
-            item="${mixed_items[$i]}"
+        for item in "$@"; do
+            echo
+            echo "--------------------------------------------------"
+            echo
             if [ -d "$item" ]; then
-                process_folder "$item"
+                process_dir "$item"
             elif [ -f "$item" ]; then
-                print_file_content "$item" "file"
-            fi
-            if [ "$i" -lt $(( ${#mixed_items[@]} - 1 )) ]; then
-                echo
-                echo "--------------------------------------------------"
-                echo
+                process_file "$item"
             fi
         done
     fi
