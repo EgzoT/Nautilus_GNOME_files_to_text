@@ -2,7 +2,7 @@
 
 # Get the absolute path to the folder where this script is located
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
-GENERATOR="$SCRIPT_DIR/folder_files_to_text.sh"
+GENERATOR="$SCRIPT_DIR/files_to_text.sh"
 
 # Check if generator script exists and is executable
 if [[ ! -x "$GENERATOR" ]]; then
