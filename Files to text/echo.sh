@@ -38,4 +38,3 @@ open_terminal() {
 
 # Call the function
 open_terminal "$@"
-

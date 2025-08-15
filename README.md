@@ -14,10 +14,17 @@ chmod +x ~/.local/share/nautilus/scripts/Files\ to\ text/*.sh
 ```
 
 ## 🖱️ How to use in Nautilus
+
 Open Nautilus (GNOME file manager)
 
 Right-click on any folder
 
-Choose: Scripts → Files to text → Echo
+Choose: Scripts → Files to text → Echo | Save to file
 
-The script will open a terminal, generate the text, and wait for you to press Enter.
+### Echo
+
+> The script will open a terminal, generate the text, and wait for you to press Enter.
+
+### Save to file
+
+> The script will saves its output to a file in the same directory as the selection.
